@@ -13,10 +13,23 @@ async function getSalesforceAccessToken() {
     return cachedToken;
   }
 
-  const privateKey = fs.readFileSync(
-    path.join(__dirname, '..', 'private_key.pem'), 
+let privateKey;
+
+if (process.env.PRIVATE_KEY_CONTENT) {
+  console.log('🔑 Using PRIVATE_KEY_CONTENT environment variable');
+  privateKey = process.env.PRIVATE_KEY_CONTENT
+    .replace(/\\n/g, '\n')
+    .trim();
+} else if (fs.existsSync('/etc/secrets/private_key.pem')) {
+  console.log('🔑 Using secret file at /etc/secrets/private_key.pem');
+  privateKey = fs.readFileSync('/etc/secrets/private_key.pem', 'utf8');
+} else {
+  console.log('🔑 Using local private_key.pem file');
+  privateKey = fs.readFileSync(
+    path.join(__dirname, '..', 'private_key.pem'),
     'utf8'
   );
+}
 
   const claim = {
     iss: process.env.SF_CLIENT_ID,

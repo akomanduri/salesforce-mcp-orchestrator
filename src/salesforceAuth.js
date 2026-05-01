@@ -27,14 +27,30 @@ async function getSalesforceAccessToken() {
 
   const token = jwt.sign(claim, privateKey, { algorithm: 'RS256' });
 
-  const response = await axios.post(
-    `${process.env.SF_LOGIN_URL}/services/oauth2/token`,
-    new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion: token
-    }),
-    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-  );
+try {
+    const response = await axios.post(
+      `${process.env.SF_LOGIN_URL}/services/oauth2/token`,
+      new URLSearchParams({
+        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        assertion: token
+      }),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+    );
+
+    cachedToken = response.data.access_token;
+    tokenExpiry = Date.now() + (25 * 60 * 1000);
+    console.log('✅ Salesforce JWT token obtained successfully');
+    return cachedToken;
+
+  } catch (err) {
+    console.error('❌ JWT token request failed:');
+    console.error('   Status:', err.response?.status);
+    console.error('   Error:', JSON.stringify(err.response?.data));
+    console.error('   SF_CLIENT_ID:', process.env.SF_CLIENT_ID);
+    console.error('   SF_USERNAME:', process.env.SF_USERNAME);
+    console.error('   SF_LOGIN_URL:', process.env.SF_LOGIN_URL);
+    throw err;
+  }
 
   cachedToken = response.data.access_token;
   tokenExpiry = Date.now() + (25 * 60 * 1000); // Cache for 25 minutes

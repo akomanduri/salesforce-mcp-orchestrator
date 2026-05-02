@@ -45,35 +45,41 @@ async function getMCPAccessToken() {
     return mcpToken;
   }
 
-  // Use stored access token
+  // Try refresh token first (more reliable than stored access token)
+  if (process.env.SF_MCP_REFRESH_TOKEN) {
+    console.log('🔑 Refreshing MCP token using refresh token...');
+    try {
+      const response = await axios.post(
+        `${process.env.SF_INSTANCE_URL}/services/oauth2/token`,
+        new URLSearchParams({
+          grant_type: 'refresh_token',
+          client_id: process.env.SF_MCP_CLIENT_ID,
+          client_secret: process.env.SF_MCP_CLIENT_SECRET,
+          refresh_token: process.env.SF_MCP_REFRESH_TOKEN
+        }),
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+      );
+      mcpToken = response.data.access_token;
+      mcpTokenExpiry = Date.now() + (25 * 60 * 1000);
+      process.env.SF_MCP_ACCESS_TOKEN = mcpToken;
+      console.log('✅ MCP token refreshed successfully');
+      console.log('🔑 New token length:', mcpToken.length);
+      return mcpToken;
+    } catch (refreshErr) {
+      console.error('❌ Token refresh failed:', refreshErr.response?.data || refreshErr.message);
+      // Fall through to stored access token
+    }
+  }
+
+  // Fall back to stored access token
   if (process.env.SF_MCP_ACCESS_TOKEN) {
     console.log('🔑 Using stored MCP access token');
     mcpToken = process.env.SF_MCP_ACCESS_TOKEN;
-    mcpTokenExpiry = Date.now() + TOKEN_TTL_MS;
+    mcpTokenExpiry = Date.now() + (25 * 60 * 1000);
     return mcpToken;
   }
 
-  // Refresh using refresh token
-  if (process.env.SF_MCP_REFRESH_TOKEN) {
-    console.log('🔑 Refreshing MCP token...');
-    const response = await axios.post(
-      `${process.env.SF_INSTANCE_URL}/services/oauth2/token`,
-      new URLSearchParams({
-        grant_type: 'refresh_token',
-        client_id: process.env.SF_MCP_CLIENT_ID,
-        client_secret: process.env.SF_MCP_CLIENT_SECRET,
-        refresh_token: process.env.SF_MCP_REFRESH_TOKEN
-      }),
-      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-    );
-    mcpToken = response.data.access_token;
-    mcpTokenExpiry = Date.now() + TOKEN_TTL_MS;
-    process.env.SF_MCP_ACCESS_TOKEN = mcpToken;
-    console.log('✅ MCP token refreshed successfully');
-    return mcpToken;
-  }
-
-  throw new Error('No MCP token. Visit /oauth/start to authorize.');
+  throw new Error('No MCP token available. Please visit /oauth/start to authorize.');
 }
 
 // ─── OAUTH ROUTES ─────────────────────────────────────────────────────────────

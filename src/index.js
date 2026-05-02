@@ -299,7 +299,7 @@ async function processCase(caseId) {
 
 A new support Case has just arrived via email with Salesforce Case ID: ${caseId}
 
-Work through these steps autonomously using the Salesforce tools available to you:
+Use the Salesforce MCP tools to gather information, then return a JSON response.
 
 STEP 1 - Get the Case: Query the Case record to get subject, description,
 status, priority, origin, AccountId, and ContactId.
@@ -311,43 +311,39 @@ STEP 3 - Get the Account: Use the AccountId to get the company name
 and industry.
 
 STEP 4 - Get Email History: Query EmailMessage records where ParentId
-equals the Case ID, ordered by MessageDate descending, limit 5.
-This gives you the actual email the customer sent.
+equals '${caseId}', ordered by MessageDate descending, limit 5.
 
 STEP 5 - Get Support History: Query the 5 most recent Cases for the
-same ContactId (excluding the current Case) to understand if this
-is a repeat issue.
+same ContactId to understand if this is a repeat issue.
 
 STEP 6 - Search Knowledge: Query KnowledgeArticleVersion records
 where PublishStatus = 'Online' and Language = 'en_US', searching
 for titles or summaries relevant to the customer's issue. Limit 3.
 
-STEP 7 - Write the outputs. Based on everything you found, produce:
+STEP 7 - Return your response as a JSON object with exactly these two fields:
+{
+  "summary": "your case summary here",
+  "draftResponse": "your draft email response here"
+}
 
-  A) CASE SUMMARY for the field AI_Case_Summary__c:
-     - What the customer is asking for (2-3 clear sentences)
-     - Key details (bullet points)
-     - Urgency: Low / Medium / High with a one-line reason
+For the summary include:
+- What the customer is asking for (2-3 clear sentences)
+- Key details (bullet points)
+- Urgency: Low / Medium / High with a one-line reason
 
-  B) DRAFT EMAIL RESPONSE for the field AI_Draft_Response__c:
-     - Use the customer's first name
-     - Acknowledge their specific issue warmly
-     - Provide clear resolution steps using knowledge base content if found
-     - Professional closing with "Salesforce Support Team"
+For the draft email response:
+- Use the customer's first name
+- Acknowledge their specific issue warmly
+- Provide clear resolution steps using knowledge base content if found
+- Professional closing with Salesforce Support Team
 
-STEP 8 - Update the Case: Write both outputs back to the Case record
-by updating AI_Case_Summary__c, AI_Draft_Response__c, and set
-AI_Status__c to "AI Processing Complete - ${new Date().toLocaleString()}"
-
-Important rules:
-- Do not invent data not found in Salesforce
-- Use the customer's actual first name in the response
-- If no knowledge articles are found, still provide helpful general guidance
-- Be empathetic, professional, and concise`
+IMPORTANT: Your final response must be a valid JSON object only.
+Do not include any text before or after the JSON.
+Do not invent data not found in Salesforce.`
     });
 
     console.log(`✅ OpenAI completed processing for Case: ${caseId}`);
-    console.log(`   Full output: ${response.output_text}`);
+    console.log(`   Raw output: ${response.output_text}`);
 
     // Also log all tool calls OpenAI made
     if (response.output) {
@@ -360,7 +356,52 @@ Important rules:
         }
       });
     }
-    
+      
+    // Parse the JSON response from OpenAI
+    let summary = '';
+    let draftResponse = '';
+
+    try {
+      // Clean the response in case OpenAI added markdown code fences
+      const cleaned = response.output_text
+        .replace(/```json/g, '')
+        .replace(/```/g, '')
+        .trim();
+
+      const parsed = JSON.parse(cleaned);
+      summary = parsed.summary || '';
+      draftResponse = parsed.draftResponse || '';
+
+      console.log(`✅ Successfully parsed AI output`);
+      console.log(`   Summary preview: ${summary.substring(0, 100)}...`);
+      console.log(`   Draft preview: ${draftResponse.substring(0, 100)}...`);
+
+    } catch (parseErr) {
+      console.error('❌ Could not parse JSON from OpenAI response:', parseErr.message);
+      // Use raw output as summary if JSON parsing fails
+      summary = response.output_text;
+      draftResponse = 'AI could not generate a structured response. Please review the summary.';
+    }
+
+    // Update Salesforce Case directly via REST API using JWT token
+    console.log(`📝 Updating Salesforce Case ${caseId}...`);
+    await axios.patch(
+      `${process.env.SF_INSTANCE_URL}/services/data/v59.0/sobjects/Case/${caseId}`,
+      {
+        AI_Case_Summary__c: summary,
+        AI_Draft_Response__c: draftResponse,
+        AI_Status__c: `AI Processing Complete - ${new Date().toLocaleString()}`
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${sfToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    console.log(`✅ Salesforce Case updated successfully for Case: ${caseId}`);
+
   } catch (err) {
     console.error(`❌ processCase error for ${caseId}:`, err.message);
 

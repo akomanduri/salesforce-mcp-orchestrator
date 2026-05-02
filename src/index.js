@@ -151,32 +151,80 @@ app.get('/test-mcp', async (req, res) => {
     console.log('🔑 Token length:', mcpAccessToken.length);
     console.log('🔑 Token preview:', mcpAccessToken.substring(0, 20) + '...');
 
-    const response = await axios.post(
+    const headers = {
+      'Authorization': `Bearer ${mcpAccessToken}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json, text/event-stream'
+    };
+
+    // Step 1 — Initialize the MCP session
+    console.log('📡 Step 1: Sending initialize request...');
+    const initResponse = await axios.post(
       process.env.SF_MCP_SERVER_URL,
       {
         jsonrpc: '2.0',
         id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: {
+            name: 'salesforce-mcp-orchestrator',
+            version: '1.0.0'
+          }
+        }
+      },
+      { headers }
+    );
+
+    console.log('✅ Initialize response:', JSON.stringify(initResponse.data));
+
+    // Extract session key from response headers
+    const sessionKey = initResponse.headers['mcp-session-id'] 
+      || initResponse.headers['x-session-id']
+      || initResponse.headers['session-id'];
+    
+    console.log('🔑 Session key:', sessionKey);
+    console.log('🔑 Response headers:', JSON.stringify(initResponse.headers));
+
+    if (!sessionKey) {
+      return res.json({ 
+        success: false, 
+        message: 'No session key in response headers',
+        headers: initResponse.headers,
+        data: initResponse.data
+      });
+    }
+
+    // Step 2 — List tools using session key
+    console.log('📡 Step 2: Listing tools...');
+    const toolsResponse = await axios.post(
+      process.env.SF_MCP_SERVER_URL,
+      {
+        jsonrpc: '2.0',
+        id: 2,
         method: 'tools/list',
         params: {}
       },
-      {
+      { 
         headers: {
-          'Authorization': `Bearer ${mcpAccessToken}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json, text/event-stream'
+          ...headers,
+          'mcp-session-id': sessionKey
         }
       }
     );
 
-    console.log('✅ MCP Server responded successfully');
-    res.json({ success: true, tools: response.data });
+    console.log('✅ MCP Server tools retrieved successfully');
+    res.json({ success: true, tools: toolsResponse.data });
 
   } catch (err) {
     console.error('❌ MCP test error:', err.response?.data || err.message);
+    console.error('❌ Response headers:', JSON.stringify(err.response?.headers));
     res.json({
       error: err.message,
       status: err.response?.status,
-      data: err.response?.data
+      data: err.response?.data,
+      headers: err.response?.headers
     });
   }
 });

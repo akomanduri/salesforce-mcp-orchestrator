@@ -10,6 +10,11 @@ app.use(express.json());
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+// ─── CONSTANTS ────────────────────────────────────────────────────────────────
+const TOKEN_TTL_MS = 25 * 60 * 1000;
+const SF_API_VERSION = process.env.SF_API_VERSION || 'v59.0';
+const SFID_REGEX = /^[a-zA-Z0-9]{15,18}$/;
+
 // ─── MCP TOKEN CACHE ──────────────────────────────────────────────────────────
 let mcpToken = null;
 let mcpTokenExpiry = 0;
@@ -44,7 +49,7 @@ async function getMCPAccessToken() {
   if (process.env.SF_MCP_ACCESS_TOKEN) {
     console.log('🔑 Using stored MCP access token');
     mcpToken = process.env.SF_MCP_ACCESS_TOKEN;
-    mcpTokenExpiry = Date.now() + (25 * 60 * 1000);
+    mcpTokenExpiry = Date.now() + TOKEN_TTL_MS;
     return mcpToken;
   }
 
@@ -62,7 +67,7 @@ async function getMCPAccessToken() {
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
     );
     mcpToken = response.data.access_token;
-    mcpTokenExpiry = Date.now() + (25 * 60 * 1000);
+    mcpTokenExpiry = Date.now() + TOKEN_TTL_MS;
     process.env.SF_MCP_ACCESS_TOKEN = mcpToken;
     console.log('✅ MCP token refreshed successfully');
     return mcpToken;
@@ -123,7 +128,7 @@ app.get('/oauth/callback', async (req, res) => {
     process.env.SF_MCP_ACCESS_TOKEN = response.data.access_token;
     process.env.SF_MCP_REFRESH_TOKEN = response.data.refresh_token;
     mcpToken = response.data.access_token;
-    mcpTokenExpiry = Date.now() + (25 * 60 * 1000);
+    mcpTokenExpiry = Date.now() + TOKEN_TTL_MS;
     pkceVerifier = null;
 
     console.log('\n✅ MCP OAuth successful!');
@@ -140,16 +145,19 @@ app.get('/oauth/callback', async (req, res) => {
     `);
   } catch (err) {
     console.error('❌ OAuth callback error:', err.response?.data || err.message);
-    res.status(500).send('OAuth failed: ' + JSON.stringify(err.response?.data || err.message));
+    res.status(500).send('OAuth failed. Check server logs for details.');
   }
 });
 
 // ─── DIAGNOSTIC: Test MCP Server Directly ────────────────────────────────────
 app.get('/test-mcp', async (req, res) => {
+  const auth = req.headers['authorization'];
+  if (auth !== `Bearer ${process.env.ORCHESTRATOR_SECRET}`) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
   try {
     const mcpAccessToken = await getMCPAccessToken();
-    console.log('🔑 Token length:', mcpAccessToken.length);
-    console.log('🔑 Token preview:', mcpAccessToken.substring(0, 20) + '...');
 
     const headers = {
       'Authorization': `Bearer ${mcpAccessToken}`,
@@ -225,12 +233,9 @@ app.get('/test-mcp', async (req, res) => {
 
   } catch (err) {
     console.error('❌ MCP test error:', err.response?.data || err.message);
-    console.error('❌ Response headers:', JSON.stringify(err.response?.headers));
-    res.json({
-      error: err.message,
-      status: err.response?.status,
-      data: err.response?.data,
-      headers: err.response?.headers
+    res.status(500).json({
+      error: 'MCP test failed',
+      status: err.response?.status
     });
   }
 });
@@ -257,45 +262,26 @@ app.post('/orchestrate', async (req, res) => {
   if (!caseId) {
     return res.status(400).json({ error: 'caseId is required' });
   }
+  if (!SFID_REGEX.test(caseId)) {
+    return res.status(400).json({ error: 'Invalid caseId format' });
+  }
 
-  console.log(`\n🤖 Starting AI processing for Case: ${caseId}`);
+  const requestId = crypto.randomUUID();
+  console.log(`\n🤖 [${requestId}] Starting AI processing for Case: ${caseId}`);
   console.log(`   Time: ${new Date().toISOString()}`);
 
   // Respond immediately so Apex does not time out
   res.json({ success: true, message: 'AI processing started', caseId });
 
   // Process in background
-  processCase(caseId).catch(err => {
-    console.error(`❌ Background error for Case ${caseId}:`, err.message);
+  processCase(caseId, requestId).catch(err => {
+    console.error(`❌ [${requestId}] Background error for Case ${caseId}:`, err.message);
   });
 });
 
-// ─── CORE AI PROCESSING FUNCTION ──────────────────────────────────────────────
-async function processCase(caseId) {
-  try {
-    const sfToken = await getSalesforceAccessToken();
-    console.log(`🔑 SF JWT token obtained for Case: ${caseId}`);
-
-    const mcpAccessToken = await getMCPAccessToken();
-    console.log(`🔑 MCP token obtained for Case: ${caseId}`);
-    console.log(`🔑 MCP token length: ${mcpAccessToken.length}`);
-
-    console.log(`📡 Calling OpenAI Responses API with SF MCP Server...`);
-
-    const response = await openai.responses.create({
-      model: 'gpt-4.1',
-      tools: [
-        {
-          type: 'mcp',
-          server_label: 'salesforce',
-          server_url: process.env.SF_MCP_SERVER_URL,
-          headers: {
-            'Authorization': `Bearer ${mcpAccessToken}`
-          },
-          require_approval: 'never'
-        }
-      ],
-      input: `You are an expert Salesforce customer service AI assistant.
+// ─── PROMPT BUILDER ──────────────────────────────────────────────────────────
+function buildCasePrompt(caseId) {
+  return `You are an expert Salesforce customer service AI assistant.
 
 A new support Case has just arrived via email with Salesforce Case ID: ${caseId}
 
@@ -339,20 +325,50 @@ For the draft email response:
 
 IMPORTANT: Your final response must be a valid JSON object only.
 Do not include any text before or after the JSON.
-Do not invent data not found in Salesforce.`
+Do not invent data not found in Salesforce.`;
+}
+
+// ─── CORE AI PROCESSING FUNCTION ──────────────────────────────────────────────
+async function processCase(caseId, requestId) {
+  const log = (msg) => console.log(`[${requestId}] ${msg}`);
+  const logErr = (msg) => console.error(`[${requestId}] ${msg}`);
+
+  try {
+    const sfToken = await getSalesforceAccessToken();
+    log(`🔑 SF JWT token obtained for Case: ${caseId}`);
+
+    const mcpAccessToken = await getMCPAccessToken();
+    log(`🔑 MCP token obtained for Case: ${caseId}`);
+
+    log(`📡 Calling OpenAI Responses API with SF MCP Server...`);
+
+    const response = await openai.responses.create({
+      model: 'gpt-4.1',
+      tools: [
+        {
+          type: 'mcp',
+          server_label: 'salesforce',
+          server_url: process.env.SF_MCP_SERVER_URL,
+          headers: {
+            'Authorization': `Bearer ${mcpAccessToken}`
+          },
+          require_approval: 'never'
+        }
+      ],
+      input: buildCasePrompt(caseId)
     });
 
-    console.log(`✅ OpenAI completed processing for Case: ${caseId}`);
-    console.log(`   Raw output: ${response.output_text}`);
+    log(`✅ OpenAI completed processing for Case: ${caseId}`);
+    log(`   Raw output: ${response.output_text}`);
 
     // Also log all tool calls OpenAI made
     if (response.output) {
       response.output.forEach((item, index) => {
         if (item.type === 'mcp_call') {
-          console.log(`   Tool call ${index}: ${item.name} → ${JSON.stringify(item.arguments)}`);
+          log(`   Tool call ${index}: ${item.name} → ${JSON.stringify(item.arguments)}`);
         }
         if (item.type === 'mcp_call_result') {
-          console.log(`   Tool result ${index}: ${JSON.stringify(item.content)?.substring(0, 200)}`);
+          log(`   Tool result ${index}: ${JSON.stringify(item.content)?.substring(0, 200)}`);
         }
       });
     }
@@ -372,21 +388,21 @@ Do not invent data not found in Salesforce.`
       summary = parsed.summary || '';
       draftResponse = parsed.draftResponse || '';
 
-      console.log(`✅ Successfully parsed AI output`);
-      console.log(`   Summary preview: ${summary.substring(0, 100)}...`);
-      console.log(`   Draft preview: ${draftResponse.substring(0, 100)}...`);
+      log(`✅ Successfully parsed AI output`);
+      log(`   Summary preview: ${summary.substring(0, 100)}...`);
+      log(`   Draft preview: ${draftResponse.substring(0, 100)}...`);
 
     } catch (parseErr) {
-      console.error('❌ Could not parse JSON from OpenAI response:', parseErr.message);
+      logErr('❌ Could not parse JSON from OpenAI response: ' + parseErr.message);
       // Use raw output as summary if JSON parsing fails
       summary = response.output_text;
       draftResponse = 'AI could not generate a structured response. Please review the summary.';
     }
 
     // Update Salesforce Case directly via REST API using JWT token
-    console.log(`📝 Updating Salesforce Case ${caseId}...`);
+    log(`📝 Updating Salesforce Case ${caseId}...`);
     await axios.patch(
-      `${process.env.SF_INSTANCE_URL}/services/data/v59.0/sobjects/Case/${caseId}`,
+      `${process.env.SF_INSTANCE_URL}/services/data/${SF_API_VERSION}/sobjects/Case/${caseId}`,
       {
         AI_Case_Summary__c: summary,
         AI_Draft_Response__c: draftResponse,
@@ -400,15 +416,15 @@ Do not invent data not found in Salesforce.`
       }
     );
 
-    console.log(`✅ Salesforce Case updated successfully for Case: ${caseId}`);
+    log(`✅ Salesforce Case updated successfully for Case: ${caseId}`);
 
   } catch (err) {
-    console.error(`❌ processCase error for ${caseId}:`, err.message);
+    logErr(`❌ processCase error for ${caseId}: ${err.message}`);
 
     try {
       const sfToken = await getSalesforceAccessToken();
       await axios.patch(
-        `${process.env.SF_INSTANCE_URL}/services/data/v59.0/sobjects/Case/${caseId}`,
+        `${process.env.SF_INSTANCE_URL}/services/data/${SF_API_VERSION}/sobjects/Case/${caseId}`,
         { AI_Status__c: `AI Error: ${err.message.substring(0, 200)}` },
         {
           headers: {
@@ -418,14 +434,14 @@ Do not invent data not found in Salesforce.`
         }
       );
     } catch (updateErr) {
-      console.error('Could not write error to Case:', updateErr.message);
+      logErr('Could not write error to Case: ' + updateErr.message);
     }
   }
 }
 
 // ─── START SERVER ──────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`\n🚀 MCP Orchestrator running on http://localhost:${PORT}`);
   console.log(`   Health:      http://localhost:${PORT}/health`);
   console.log(`   OAuth Start: http://localhost:${PORT}/oauth/start`);
@@ -433,3 +449,15 @@ app.listen(PORT, () => {
   console.log(`   Orchestrate: POST http://localhost:${PORT}/orchestrate`);
   console.log('\n   Waiting for Case events from Salesforce...\n');
 });
+
+// ─── GRACEFUL SHUTDOWN ───────────────────────────────────────────────────────
+function shutdown(signal) {
+  console.log(`\n⏹️  ${signal} received — shutting down gracefully...`);
+  server.close(() => {
+    console.log('Server closed.');
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 10000);
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

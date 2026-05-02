@@ -215,7 +215,13 @@ app.get('/test-mcp', async (req, res) => {
     );
 
     console.log('✅ MCP Server tools retrieved successfully');
-    res.json({ success: true, tools: toolsResponse.data });
+    console.log('✅ Tools raw response:', JSON.stringify(toolsResponse.data));
+    console.log('✅ Tools response type:', typeof toolsResponse.data);
+    res.json({ 
+      success: true, 
+      raw: toolsResponse.data,
+      type: typeof toolsResponse.data
+    });
 
   } catch (err) {
     console.error('❌ MCP test error:', err.response?.data || err.message);

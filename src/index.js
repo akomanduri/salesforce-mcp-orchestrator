@@ -3,6 +3,33 @@ const express = require('express');
 const OpenAI = require('openai');
 const { getSalesforceAccessToken } = require('./salesforceAuth');
 
+// MCP-specific token cache
+let mcpToken = null;
+let mcpTokenExpiry = 0;
+
+async function getMCPAccessToken() {
+  if (mcpToken && Date.now() < mcpTokenExpiry) {
+    return mcpToken;
+  }
+
+  console.log('🔑 Getting MCP-specific access token...');
+
+  const response = await axios.post(
+    `${process.env.SF_INSTANCE_URL}/services/oauth2/token`,
+    new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: process.env.SF_MCP_CLIENT_ID,
+      client_secret: process.env.SF_MCP_CLIENT_SECRET
+    }),
+    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+  );
+
+  mcpToken = response.data.access_token;
+  mcpTokenExpiry = Date.now() + (25 * 60 * 1000);
+  console.log('✅ MCP access token obtained successfully');
+  return mcpToken;
+}
+
 const app = express();
 app.use(express.json());
 
@@ -49,11 +76,19 @@ async function processCase(caseId) {
     const sfToken = await getSalesforceAccessToken();
     console.log(`🔑 SF token obtained for Case: ${caseId}`);
 
+    // Get MCP-specific token with mcp scope
+    const mcpAccessToken = await getMCPAccessToken();
+    console.log(`🔑 MCP token obtained for Case: ${caseId}`);
+    
     // Call OpenAI Responses API
     // OpenAI will autonomously call the Salesforce MCP Server
     // to gather whatever data it needs, then produce the output
     console.log(`📡 Calling OpenAI Responses API with SF MCP Server...`);
 
+    console.log('🔑 MCP Client ID set:', !!process.env.SF_MCP_CLIENT_ID);
+    console.log('🔑 MCP Client Secret set:', !!process.env.SF_MCP_CLIENT_SECRET);
+    console.log('🔑 MCP Server URL:', process.env.SF_MCP_SERVER_URL);
+    
     const response = await openai.responses.create({
       model: 'gpt-5-nano',
       tools: [
@@ -62,7 +97,7 @@ async function processCase(caseId) {
           server_label: 'salesforce',
           server_url: process.env.SF_MCP_SERVER_URL,
           headers: {
-            'Authorization': `Bearer ${sfToken}`
+            'Authorization': `Bearer ${mcpAccessToken}`
           },
           require_approval: 'never'
         }

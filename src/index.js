@@ -80,7 +80,18 @@ async function processCase(caseId) {
     // Get MCP-specific token with mcp scope
     const mcpAccessToken = await getMCPAccessToken();
     console.log(`🔑 MCP token obtained for Case: ${caseId}`);
-    
+
+    // Decode and log the token scopes (JWT tokens are base64 encoded)
+    try {
+      const tokenParts = mcpAccessToken.split('.');
+      if (tokenParts.length === 3) {
+        const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64').toString());
+        console.log('🔑 MCP token scopes:', payload.scp || payload.scope || 'not visible');
+      }
+    } catch(e) {
+      console.log('🔑 Token is not JWT format (opaque token)');
+    }
+      
     // Call OpenAI Responses API
     // OpenAI will autonomously call the Salesforce MCP Server
     // to gather whatever data it needs, then produce the output

@@ -347,8 +347,20 @@ Important rules:
     });
 
     console.log(`✅ OpenAI completed processing for Case: ${caseId}`);
-    console.log(`   Output: ${response.output_text?.substring(0, 150)}...`);
+    console.log(`   Full output: ${response.output_text}`);
 
+    // Also log all tool calls OpenAI made
+    if (response.output) {
+      response.output.forEach((item, index) => {
+        if (item.type === 'mcp_call') {
+          console.log(`   Tool call ${index}: ${item.name} → ${JSON.stringify(item.arguments)}`);
+        }
+        if (item.type === 'mcp_call_result') {
+          console.log(`   Tool result ${index}: ${JSON.stringify(item.content)?.substring(0, 200)}`);
+        }
+      });
+    }
+    
   } catch (err) {
     console.error(`❌ processCase error for ${caseId}:`, err.message);
 

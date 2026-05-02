@@ -205,3 +205,42 @@ app.listen(PORT, () => {
   console.log(`   Orchestrate: POST http://localhost:${PORT}/orchestrate`);
   console.log('\n   Waiting for Case events from Salesforce...\n');
 });
+
+// Temporary diagnostic endpoint - remove after testing
+app.get('/test-mcp', async (req, res) => {
+  try {
+    const mcpAccessToken = await getMCPAccessToken();
+    console.log('🔑 MCP token obtained:', mcpAccessToken.substring(0, 20) + '...');
+
+    // Call the MCP Server directly to get tool list
+    const response = await axios.post(
+      process.env.SF_MCP_SERVER_URL,
+      {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/list',
+        params: {}
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${mcpAccessToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    console.log('✅ MCP Server response:', JSON.stringify(response.data, null, 2));
+    res.json({ success: true, data: response.data });
+
+  } catch (err) {
+    console.error('❌ MCP direct call error:');
+    console.error('   Status:', err.response?.status);
+    console.error('   Data:', JSON.stringify(err.response?.data, null, 2));
+    console.error('   Message:', err.message);
+    res.json({ 
+      error: err.message,
+      status: err.response?.status,
+      data: err.response?.data
+    });
+  }
+});

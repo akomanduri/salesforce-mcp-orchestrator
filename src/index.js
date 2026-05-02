@@ -296,17 +296,20 @@ full name and email address.
 STEP 3 - Get the Account: Use the AccountId to get the company name
 and industry.
 
-STEP 4 - Get Email History: Query EmailMessage records where ParentId
+STEP 4 - Get the Orders : Use the AccountId to get Order history of the Customer,
+and try to find out which Order the Customer is talking about.
+
+STEP 5 - Get Email History: Query EmailMessage records where ParentId
 equals '${caseId}', ordered by MessageDate descending, limit 5.
 
-STEP 5 - Get Support History: Query the 5 most recent Cases for the
+STEP 6 - Get Support History: Query the 5 most recent Cases for the
 same ContactId to understand if this is a repeat issue.
 
-STEP 6 - Search Knowledge: Query KnowledgeArticleVersion records
+STEP 7 - Search Knowledge: Query KnowledgeArticleVersion records
 where PublishStatus = 'Online' and Language = 'en_US', searching
 for titles or summaries relevant to the customer's issue. Limit 3.
 
-STEP 7 - Return your response as a JSON object with exactly these two fields:
+STEP 8 - Return your response as a JSON object with exactly these two fields:
 {
   "summary": "your case summary here",
   "draftResponse": "your draft email response here"

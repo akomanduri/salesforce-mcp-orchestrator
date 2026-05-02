@@ -210,7 +210,8 @@ app.listen(PORT, () => {
 app.get('/test-mcp', async (req, res) => {
   try {
     const mcpAccessToken = await getMCPAccessToken();
-    console.log('🔑 MCP token obtained:', mcpAccessToken.substring(0, 20) + '...');
+    console.log('🔑 Token type:', mcpAccessToken.substring(0, 10));
+    console.log('🔑 Token length:', mcpAccessToken.length);
     console.log('🔑 Full MCP token:', mcpAccessToken);
     
     // Call the MCP Server directly to get tool list

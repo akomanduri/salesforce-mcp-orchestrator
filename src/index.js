@@ -160,7 +160,12 @@ Important rules:
 
   } catch (err) {
     console.error(`❌ processCase error for ${caseId}:`, err.message);
-    
+
+    // Add this to see the full error details
+    if (err.status) console.error('   Status:', err.status);
+    if (err.headers) console.error('   Headers:', JSON.stringify(err.headers));
+    console.error('   Full error:', JSON.stringify(err, null, 2));
+      
     // Try to write the error back to the Case so the CSR knows
     try {
       const sfToken = await getSalesforceAccessToken();

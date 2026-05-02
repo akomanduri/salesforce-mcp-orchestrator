@@ -290,14 +290,14 @@ Use the Salesforce MCP tools to gather information, then return a JSON response.
 STEP 1 - Get the Case: Query the Case record to get subject, description,
 status, priority, origin, AccountId, and ContactId.
 
-STEP 2 - Get the Customer: Use the ContactId to get the customer's
-full name and email address.
+STEP 2 - Get the Customer: Use the Email address of the sender to find the Contact. Then use the ContactId to get the customer's
+full name.
 
 STEP 3 - Get the Account: Use the AccountId to get the company name
 and industry.
 
-STEP 4 - Get the Orders : Use the AccountId to get Order history of the Customer,
-and try to find out which Order the Customer is talking about.
+STEP 4 - Get the Orders : Use the AccountId find relevant Orders of the Customer,
+and try to find out which Order the Customer is likely talking about.
 
 STEP 5 - Get Email History: Query EmailMessage records where ParentId
 equals '${caseId}', ordered by MessageDate descending, limit 5.

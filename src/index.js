@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const OpenAI = require('openai');
+const axios = require('axios');
 const { getSalesforceAccessToken } = require('./salesforceAuth');
 
 // MCP-specific token cache

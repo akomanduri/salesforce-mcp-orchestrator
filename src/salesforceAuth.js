@@ -64,12 +64,6 @@ try {
     console.error('   SF_LOGIN_URL:', process.env.SF_LOGIN_URL);
     throw err;
   }
-
-  cachedToken = response.data.access_token;
-  tokenExpiry = Date.now() + (25 * 60 * 1000); // Cache for 25 minutes
-  
-  console.log('✅ Salesforce JWT token obtained successfully');
-  return cachedToken;
 }
 
 module.exports = { getSalesforceAccessToken };

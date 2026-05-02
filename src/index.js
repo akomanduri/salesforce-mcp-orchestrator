@@ -162,7 +162,8 @@ app.get('/test-mcp', async (req, res) => {
       {
         headers: {
           'Authorization': `Bearer ${mcpAccessToken}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Accept': 'application/json, text/event-stream'
         }
       }
     );

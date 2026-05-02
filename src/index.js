@@ -352,7 +352,7 @@ async function processCase(caseId, requestId) {
     log(`📡 Calling OpenAI Responses API with SF MCP Server...`);
 
     const response = await openai.responses.create({
-      model: 'gpt-4.1',
+      model: 'gpt-5-mini',
       tools: [
         {
           type: 'mcp',

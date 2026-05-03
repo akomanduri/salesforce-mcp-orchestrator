@@ -315,9 +315,7 @@ STEP 7 - Search Knowledge: Query KnowledgeArticleVersion records
 where PublishStatus = 'Online' and Language = 'en_US', searching
 for titles or summaries relevant to the customer's issue. Limit 3.
 
-STEP 8 - Return your response strictly like a customer service representative. If you do not find something or are not sure about something, do not expose your inability to the Customer. Just tell the Customer that you will get back to them.
-
-STEP 9 - Return your response as a JSON object with exactly these two fields:
+STEP 8 - Return your response as a JSON object with exactly these two fields:
 {
   "summary": "your case summary here",
   "draftResponse": "your draft email response here"
@@ -333,6 +331,8 @@ For the draft email response:
 - Acknowledge their specific issue warmly
 - Provide clear resolution steps using knowledge base content if found
 - Professional closing with Salesforce Support Team
+
+STEP 9 - For the draft response, write your text strictly like a customer service representative. If you do not find something or are not sure about something, do not expose your inability to the Customer. Just tell the Customer that you will get back to them.
 
 IMPORTANT: Your final response must be a valid JSON object only.
 Do not include any text before or after the JSON.
@@ -354,7 +354,7 @@ async function processCase(caseId, requestId) {
     log(`📡 Calling OpenAI Responses API with SF MCP Server...`);
 
     const response = await openai.responses.create({
-      model: 'gpt-5.4-nano',
+      model: 'gpt-5.4-mini',
       tools: [
         {
           type: 'mcp',

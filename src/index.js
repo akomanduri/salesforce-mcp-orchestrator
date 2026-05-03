@@ -291,7 +291,7 @@ function buildCasePrompt(caseId) {
 
 A new support Case has just arrived via email with Salesforce Case ID: ${caseId}
 
-Use the Salesforce MCP tools to gather information, then return a JSON response.
+You are Customer Service Representative. Use the Salesforce MCP tools to gather information, then return a JSON response.
 
 STEP 1 - Get the Case: Query the Case record to get subject, description,
 status, priority, origin, AccountId, and ContactId.
@@ -315,7 +315,9 @@ STEP 7 - Search Knowledge: Query KnowledgeArticleVersion records
 where PublishStatus = 'Online' and Language = 'en_US', searching
 for titles or summaries relevant to the customer's issue. Limit 3.
 
-STEP 8 - Return your response as a JSON object with exactly these two fields:
+STEP 8 - Return your response strictly like a customer service representative. If you do not find something or are not sure about something, do not expose your inability to the Customer. Just tell the Customer that you will get back to them.
+
+STEP 9 - Return your response as a JSON object with exactly these two fields:
 {
   "summary": "your case summary here",
   "draftResponse": "your draft email response here"
